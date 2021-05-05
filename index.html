@@ -1,6 +1,6 @@
 <h1>Bulk File Transformer</h1>
 <hr>
-<p>This is a browser-based tool that allows you to define a custom JavaScript function which is used to bulk-convert a folder of files (using the new File System Access API). Your data folder should contain an '<b>input</b>' folder (filled with files) and an empty '<b>output</b>' folder. Your data folder can <i>optionally</i> contain '<b>transform.js</b>' which defines an async function called 'transform' that takes as input an object like this: <b>{blob, name, i}</b> (the input blob, filename and file index) and returns an object like this: <b>{blob, name}</b>. If the data folder doesn't contain transform.js, you can use the code editor below to write the transform function. The files in the input folder will be copied, transformed, and placed into the output folder with the new filenames being specified by the transform function. Note that your transform is executed in a Web Worker, using as many threads as you like (specified below).</p>
+<p>This is a browser-based tool that allows you to define a custom JavaScript function which is used to bulk-convert a folder of files (using the new File System Access API). Your data folder should contain an '<b>input</b>' folder (filled with files) and an empty '<b>output</b>' folder. Your data folder can <i>optionally</i> contain '<b>transform.js</b>' which defines an async function called 'transform' that takes as input an object like this: <b>{blob, name, i}</b> (the input blob, filename and file index) and returns an object like this: <b>{blob, name}</b> (or an array of these objects, if each input should be converted into multiple output files). If the data folder doesn't contain transform.js, you can use the code editor below to write the transform function. The files in the input folder will be copied, transformed, and placed into the output folder with the new filenames being specified by the transform function. Note that your transform is executed in a Web Worker, using as many threads as you like (specified below).</p>
 <hr>
 <button id="dataFolderChooserBtn" style="font-weight:bold;" onclick="window.showDirectoryPicker().then(handleDataFolderUpdate)">choose data folder</button>
 <hr>
@@ -92,9 +92,14 @@ threads: <input type=number id=numThreadsEl value="1" style="width:60px;"> <scri
         // Note: Ideally, for perf reasons, I would pass the file handle to the worker and let it do all the reading/writing, but this will do for now.
         let inputBlob = await fileHandle.getFile();
         let outputData = await transformFn({blob:inputBlob, name:fileHandle.name, i});
-        let outputFile = await outputFilesFolder.getFileHandle(outputData.name, { create: true });
-        let writable = await outputFile.createWritable();
-        outputData.blob.stream().pipeTo(writable);
+        if(!Array.isArray(outputData)) {
+          outputData = [outputData];
+        }
+        for(let outputDatum of outputData) {
+          let outputFile = await outputFilesFolder.getFileHandle(outputDatum.name, { create: true });
+          let writable = await outputFile.createWritable();
+          outputDatum.blob.stream().pipeTo(writable);
+        }
         transformFn.isBusy = false;
         completedCount++;
       })(fileHandle, i++);
