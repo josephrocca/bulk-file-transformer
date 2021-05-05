@@ -26,6 +26,9 @@
   <hr>
   threads: <input type=number id=numThreadsEl value="1" style="width:60px;"> <script>numThreadsEl.value=navigator.hardwareConcurrency</script>
   <button onclick="start()">transform data</button>
+  <div style="display: flex;align-items: center;margin-top: 0.5rem;">
+    <input id="firstNFilesOnlyCheckbox" type="checkbox"> first <input type="number" value="50" id="firstNFilesInput" style="width: 50px; text-align: center;"> files only (for testing)
+  </div>
   <hr>
   <progress id="generationProgressEl" style="width:100%;" value="0" max="100"></progress>
   <div id="statusEl"></div>
@@ -60,14 +63,18 @@
 
       if(!window.dataFolder) return alert("please choose a data folder first");
 
-      statusEl.innerHTML = "transforming...";
+      statusEl.innerHTML = "setting up...";
+      generationProgressEl.value = 0;
 
       let inputFilesFolder = await window.dataFolder.getDirectoryHandle("input");
       let outputFilesFolder = await window.dataFolder.getDirectoryHandle("output");
+
+      let maxNumberOfInputFilesToProcess = firstNFilesOnlyCheckbox.checked ? Number(firstNFilesInput.value) : null;
       
       let numInputs = 0;
       for await (let k of inputFilesFolder.keys()) {
         numInputs++;
+        if(maxNumberOfInputFilesToProcess && numInputs === maxNumberOfInputFilesToProcess) break;
       }
       console.log(`${numInputs} files to process.`);
 
@@ -140,12 +147,25 @@
       let completedCount = 0;
       function updateStatus() {
         generationProgressEl.value = Math.round(100*completedCount/numInputs);
-        statusEl.innerHTML = completedCount < numInputs ? `transforming... ${completedCount}/${numInputs}` : "<b>finished! 🥳</b>";
+        let timeRemainingText = estimatedSecondsRemaining ? (estimatedSecondsRemaining/60 > 60 ? `(~${(estimatedSecondsRemaining/3600).toFixed(1)} hours remaining)` : `(~${(estimatedSecondsRemaining/60).toFixed(1)} mins remaining)`) : "";
+        statusEl.innerHTML = completedCount < numInputs ? `transforming... ${completedCount}/${numInputs} ${timeRemainingText}` : "<b>finished! 🥳</b>";
       }
+
+      let estimatedSecondsRemaining;
+      let lastCompletedCount = 0;
+      let timeRemainingInterval = setInterval(() => {
+        let filesProcessedPerSecond = (completedCount-lastCompletedCount)/10;
+        estimatedSecondsRemaining = (numInputs-completedCount) / filesProcessedPerSecond;
+        lastCompletedCount = completedCount;
+      }, 10*1000);
 
       let i = 0;
       for await (const fileHandle of inputFilesFolder.values()) {
         updateStatus();
+
+        if(maxNumberOfInputFilesToProcess && i === maxNumberOfInputFilesToProcess) {
+          break;
+        }
 
         let transformFn;
         while(true) {
@@ -172,6 +192,8 @@
       }
 
       updateStatus();
+
+      clearInterval(timeRemainingInterval);
 
       window.greenletWorkers.forEach(w => w.terminate());
       window.greenletWorkers = [];
