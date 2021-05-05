@@ -1,121 +1,185 @@
-<h1>Bulk File Transformer</h1>
-<hr>
-<p>This is a browser-based tool that allows you to define a custom JavaScript function which is used to bulk-convert a folder of files (using the new File System Access API). Your data folder should contain an '<b>input</b>' folder (filled with files) and an empty '<b>output</b>' folder. Your data folder can <i>optionally</i> contain '<b>transform.js</b>' which defines an async function called 'transform' that takes as input an object like this: <b>{blob, name, i}</b> (the input blob, filename and file index) and returns an object like this: <b>{blob, name}</b> (or an array of these objects, if each input should be converted into multiple output files). If the data folder doesn't contain transform.js, you can use the code editor below to write the transform function. The files in the input folder will be copied, transformed, and placed into the output folder with the new filenames being specified by the transform function. Note that your transform is executed in a Web Worker, using as many threads as you like (specified below).</p>
-<hr>
-<button id="dataFolderChooserBtn" style="font-weight:bold;" onclick="window.showDirectoryPicker().then(handleDataFolderUpdate)">choose data folder</button>
-<hr>
-threads: <input type=number id=numThreadsEl value="1" style="width:60px;"> <script>numThreadsEl.value=navigator.hardwareConcurrency</script>
-<button onclick="start()">transform data</button>
-<hr>
-<progress id="generationProgressEl" style="width:100%;" value="0" max="100"></progress>
-<div id="statusEl"></div>
-
-<br><br>
-<button id="saveChangesBtn" disabled>save changes to <b>transform.js</b></button>
-<div id="code-editor" style="border: 1px solid grey; margin-bottom:20rem;"></div>
-<script src="./codemirror/codemirror6-bundle-may-2021.js"></script>
-<script src="./codemirror/setup.js"></script>
-
-<script src="./greenlet-edited.js"></script>
-
-<script>
-
-  if(!window.showDirectoryPicker) {
-    alert("Your browser doesn't support the File System Access API. Chrome and Edge both have full support, and other browsers should soon follow.");
-  }
-
-  async function handleDataFolderUpdate(dataFolder) {
-    window.dataFolder = dataFolder;
-    let transformJsFile = await window.dataFolder.getFileHandle("transform.js", { create: true });
-    let transformJsText = await transformJsFile.getFile().then(f => f.text());
-    if(transformJsText) {
-      updateEditorWithText(transformJsText);
-      saveChangesBtn.disabled = true;
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Bulk File Transformer</title>
+</head>
+<body>
+  <style>
+    body {
+      font-family: monospace;
     }
-    dataFolderChooserBtn.style.fontWeight = "normal";
-  }
+    * {
+      font-family: inherit;
+    }
+  </style>
 
-  async function start() {
+  <h1>Bulk File Transformer</h1>
+  <div style="max-height: 150px; overflow-y: auto;">
+    <p style="margin-top:0;">This is a browser-based tool that allows you to define a custom JavaScript function which is used to bulk-convert a folder of files (using the new File System Access API).</p>
+    <p>Your data folder should contain an '<b>input</b>' folder (filled with files) and an empty '<b>output</b>' folder. Your data folder can <i>optionally</i> contain '<b>transform.js</b>' which defines an async function called 'transform' that takes as input an object like this: <b>{fileHandle, i, n}</b> (the input file handle, index, and total number of files) and returns an object like this: <b>{blob, name}</b> (or an array of these objects, if each input should be converted into multiple output files). If the output name contains forward-slashes, sub-folders are made in the output folder to match the given path. If the data folder doesn't contain transform.js, you can use the code editor below to write the transform function.</p>
+    <p>The files in the input folder will be copied, transformed, and placed into the output folder with the new filenames as specified by the transform function. Note that your transform function is executed in a Web Worker, using as many threads as you like (specified below).</p>
+  </div>
+  <hr>
+  <button id="dataFolderChooserBtn" style="font-weight:bold;" onclick="window.showDirectoryPicker().then(handleDataFolderUpdate)">choose data folder</button>
+  <hr>
+  threads: <input type=number id=numThreadsEl value="1" style="width:60px;"> <script>numThreadsEl.value=navigator.hardwareConcurrency</script>
+  <button onclick="start()">transform data</button>
+  <hr>
+  <progress id="generationProgressEl" style="width:100%;" value="0" max="100"></progress>
+  <div id="statusEl"></div>
 
-    if(!window.dataFolder) return alert("please choose a data folder first");
+  <br><br>
+  <button id="saveChangesBtn" disabled>save changes to <b>transform.js</b></button>
+  <div id="code-editor" style="border: 1px solid grey; margin-bottom:20rem;"></div>
+  <script src="./codemirror/codemirror6-bundle-may-2021.js"></script>
+  <script src="./codemirror/setup.js"></script>
 
-    statusEl.innerHTML = "transforming...";
+  <script src="./greenlet-edited.js"></script>
 
-    let inputFilesFolder = await window.dataFolder.getDirectoryHandle("input");
-    let outputFilesFolder = await window.dataFolder.getDirectoryHandle("output");
+  <script>
+
+    if(!window.showDirectoryPicker) {
+      alert("Your browser doesn't support the File System Access API. Chrome and Edge both have full support, and other browsers should soon follow.");
+    }
+
+    async function handleDataFolderUpdate(dataFolder) {
+      window.dataFolder = dataFolder;
+      let transformJsFile = await window.dataFolder.getFileHandle("transform.js", { create: true });
+      let transformJsText = await transformJsFile.getFile().then(f => f.text());
+      if(transformJsText) {
+        updateEditorWithText(transformJsText);
+        saveChangesBtn.disabled = true;
+        thereAreUnsavedChanges = false;
+      }
+      dataFolderChooserBtn.style.fontWeight = "normal";
+    }
+
+    async function start() {
+
+      if(!window.dataFolder) return alert("please choose a data folder first");
+
+      statusEl.innerHTML = "transforming...";
+
+      let inputFilesFolder = await window.dataFolder.getDirectoryHandle("input");
+      let outputFilesFolder = await window.dataFolder.getDirectoryHandle("output");
+      
+      let numInputs = 0;
+      for await (let k of inputFilesFolder.keys()) {
+        numInputs++;
+      }
+      console.log(`${numInputs} files to process.`);
+
+      let editorText = editorView.state.doc.toString();
+      let transformFns = [];
+      let transformFnsBusyFlags = [];
+      let workerCount = Math.min(numInputs, Number(numThreadsEl.value));
+      for(let i = 0; i < workerCount; i++) {
+        let fn = greenletEdited(`
+          let __folderHandleCache = {};
+          async function __createOrGetFolderPath(rootFolderHandle, folderNames) {
+            let pathString = folderNames.join("/");
+            if(__folderHandleCache[pathString]) {
+              return __folderHandleCache[pathString];
+            }
+
+            let lastFolder = rootFolderHandle;
+            for(let folderName of folderNames) {
+              if(folderName.includes("..") || folderName == "..") throw new Error(\`invalid folder name: \${folderName} in path: \${pathString}\`);
+              lastFolder = await lastFolder.getDirectoryHandle(folderName, {create: true});
+            }
+
+            __folderHandleCache[pathString] = lastFolder;
+            return lastFolder;
+          }
+          async function __transformWrapper(rootFolderHandle, data) {
+            try {
+              let outputData = await transform(data);
+              if(!Array.isArray(outputData)) {
+                outputData = [outputData];
+              }
+              for(let outputDatum of outputData) {
+                let filename = outputDatum.name;
+                let outputFolder = rootFolderHandle;
+                let pathArr = filename.split("/");
+                if(pathArr.length > 1) {
+                  outputFolder = await __createOrGetFolderPath(rootFolderHandle, pathArr.slice(0, -1));
+                  filename = pathArr[pathArr.length-1];
+                }
+                let outputFile = await outputFolder.getFileHandle(filename, { create: true });
+                let writable = await outputFile.createWritable();
+                await outputDatum.blob.stream().pipeTo(writable);
+              }
+              return true;
+            } catch(e) {
+              console.error(e);
+              return false;
+            }
+          }
+          ${editorText}
+        `);
+        fn.isBusy = false;
+        transformFns.push(fn);
+      }
+
+      function getAvailableWorker() {
+        for(let fn of transformFns) {
+          if(!fn.isBusy) {
+            fn.isBusy = true;
+            return fn;
+          }
+        }
+        return false;
+      }
+
+      function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+      }
+
+      let completedCount = 0;
+      function updateStatus() {
+        generationProgressEl.value = Math.round(100*completedCount/numInputs);
+        statusEl.innerHTML = completedCount < numInputs ? `transforming... ${completedCount}/${numInputs}` : "<b>finished! 🥳</b>";
+      }
+
+      let i = 0;
+      for await (const fileHandle of inputFilesFolder.values()) {
+        updateStatus();
+
+        let transformFn;
+        while(true) {
+          transformFn = getAvailableWorker();
+          if(transformFn) break;
+          await sleep(1);
+        }
+
+        // now that we have an available worker, dispatch it (note the lack of `await` here):
+        (async function(fileHandle, i){
+          let success = await transformFn(outputFilesFolder, {fileHandle, i, n:numInputs});
+          if(!success) {
+            console.error(`Failed to transform ${fileHandle.name}.`);
+          }
+          transformFn.isBusy = false;
+          completedCount++;
+        })(fileHandle, i++);
+      }
+
+      updateStatus();
+
+      while(completedCount < numInputs) {
+        await sleep(10);
+      }
+
+      updateStatus();
+
+      window.greenletWorkers.forEach(w => w.terminate());
+      window.greenletWorkers = [];
+
+    }
+
     
-    let numInputs = 0;
-    for await (let k of inputFilesFolder.keys()) {
-      numInputs++;
-    }
-    console.log(`${numInputs} files to process.`);
+  </script>
 
-    let editorText = editorView.state.doc.toString();
-    let transformFns = [];
-    let transformFnsBusyFlags = [];
-    let workerCount = Math.min(numInputs, Number(numThreadsEl.value));
-    for(let i = 0; i < workerCount; i++) {
-      let fn = greenletEdited(editorText);
-      fn.isBusy = false;
-      transformFns.push(fn);
-    }
-
-    function getAvailableWorker() {
-      for(let fn of transformFns) {
-        if(!fn.isBusy) {
-          fn.isBusy = true;
-          return fn;
-        }
-      }
-      return false;
-    }
-
-    function sleep(ms) {
-      return new Promise(r => setTimeout(r, ms));
-    }
-
-    let i = 0;
-    let completedCount = 0;
-    for await (const fileHandle of inputFilesFolder.values()) {
-      generationProgressEl.value = Math.round(100*completedCount/numInputs);
-      statusEl.innerHTML = `transforming... ${completedCount}/${numInputs}`;
-
-      let transformFn;
-      while(true) {
-        transformFn = getAvailableWorker();
-        if(transformFn) break;
-        await sleep(1);
-      }
-
-      // now that we have an available worker, *asynchronously* dispatch it:
-      (async function(fileHandle, i){
-        // Note: Ideally, for perf reasons, I would pass the file handle to the worker and let it do all the reading/writing, but this will do for now.
-        let inputBlob = await fileHandle.getFile();
-        let outputData = await transformFn({blob:inputBlob, name:fileHandle.name, i});
-        if(!Array.isArray(outputData)) {
-          outputData = [outputData];
-        }
-        for(let outputDatum of outputData) {
-          let outputFile = await outputFilesFolder.getFileHandle(outputDatum.name, { create: true });
-          let writable = await outputFile.createWritable();
-          outputDatum.blob.stream().pipeTo(writable);
-        }
-        transformFn.isBusy = false;
-        completedCount++;
-      })(fileHandle, i++);
-    }
-
-    while(completedCount < numInputs) {
-      await sleep(10);
-    }
-
-    generationProgressEl.value = 100;
-    statusEl.innerHTML = "<b>finished! 🥳</b>";
-
-    window.greenletWorkers.forEach(w => w.terminate());
-    window.greenletWorkers = [];
-
-  }
-
-  
-</script>
+</body>
+</html>
