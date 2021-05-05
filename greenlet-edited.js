@@ -13,7 +13,7 @@ function greenletEdited(asyncFunction) {
 	const promises = {};
 
 	// Use a data URI for the worker's src. It inlines the target function and an RPC handler:
-	const script = asyncFunction.toString().replace(/(\s)(async function transform[ (])/, "$1$$$$=$2")+';onmessage='+(e => {
+	const script = asyncFunction.toString().replace(/(\s)(async function __transformWrapper[ (])/, "$1$$$$=$2")+';onmessage='+(e => {
 		/* global $$ */
 
 		// Invoking within then() captures exceptions in the supplied async function as rejections
