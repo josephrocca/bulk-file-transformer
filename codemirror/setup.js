@@ -1,32 +1,54 @@
-// copy-pasted from the demo page: https://codemirror.net/6/
+// Based on copy-paste from the demo page: https://codemirror.net/6/
 
 (function() {
   'use strict';
-  const { EditorState, EditorView, basicSetup} = CM["@codemirror/basic-setup"];
-  const {javascript,javascriptLanguage} = CM["@codemirror/lang-javascript"];
-  const {completeFromList} = CM["@codemirror/autocomplete"];
-  let keywords = "break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import interface in instanceof let new package private protected public return static super switch this throw true try typeof var void while with yield".split(" ").map(kw => ({
-    label: kw,
-    type: "keyword"
-  }));
-  let globals = Object.getOwnPropertyNames(window).map(p => {
-    return {
-      label: p,
-      type: /^[A-Z]/.test(p) ? "class" : typeof window[p] == "function" ? "function" : "variable"
-    };
-  });
-  let jsCompletion = completeFromList([...keywords, ...globals]);
+  const { EditorState, EditorView, basicSetup } = CM["@codemirror/basic-setup"];
+  const { javascript, javascriptLanguage } = CM["@codemirror/lang-javascript"];
+  // const { completeFromList } = CM["@codemirror/autocomplete"];
+  const { keymap } = CM["@codemirror/view"];
+  const { defaultTabBinding, defaultKeymap, indentMore, indentLess } = CM["@codemirror/commands"];
+  // debugger;
+
+  // let keywords = "break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import interface in instanceof let new package private protected public return static super switch this throw true try typeof var void while with yield".split(" ").map(kw => ({
+  //   label: kw,
+  //   type: "keyword"
+  // }));
+
+  // let globals = Object.getOwnPropertyNames(window).map(p => {
+  //   return {
+  //     label: p,
+  //     type: /^[A-Z]/.test(p) ? "class" : typeof window[p] == "function" ? "function" : "variable"
+  //   };
+  // });
+
+  //let jsCompletion = completeFromList([...keywords, ...globals]);
+
   let state = EditorState.create({
     doc: `async function transform(data) {
   // this example doesn't edit the blob at all - it just returns it with a different name
+  let blob = await data.fileHandle.getFile();
   return {
-    blob: data.blob,
-    name: \`(\${data.i})-\${data.name}\`,
+    blob: blob,
+    name: \`(\${data.i} of \${data.n})-\${data.fileHandle.name}\`,
   };
 }`,
     extensions: [
       basicSetup,
       javascript(),
+      // keymap.of([defaultTabBinding]),
+      keymap.of([
+        ...defaultKeymap,
+        {
+          key: "Tab",
+          preventDefault: true,
+          run: indentMore,
+        },
+        {
+          key: "Shift-Tab",
+          preventDefault: true,
+          run: indentLess,
+        },
+      ]),
       //javascriptLanguage.data.of({autocomplete: jsCompletion}),
       EditorView.updateListener.of((v) => {if (v.docChanged) {window.onEditorDocumentChanged?.()}}),
     ]
