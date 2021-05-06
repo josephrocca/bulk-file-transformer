@@ -24,12 +24,26 @@
   //let jsCompletion = completeFromList([...keywords, ...globals]);
 
   let state = EditorState.create({
-    doc: `async function transform(data) {
-  // this example doesn't edit the blob at all - it just returns it with a different name
+    doc: `// Here's an example transform function that converts images to grayscale.
+
+let canvas = new OffscreenCanvas(512, 256);
+let ctx = canvas.getContext("2d");
+
+async function transform(data) {
   let blob = await data.fileHandle.getFile();
+  
+  let img = await createImageBitmap(blob);
+  canvas.width = img.width;
+  canvas.height = img.height;
+  ctx.filter = "grayscale(100%)";
+  ctx.drawImage(img, 0, 0);
+
+  let name = data.fileHandle.name;
+  if(data.path.length > 0) name = \`\${data.path.join("/")}/\${name}\`;
+
   return {
-    blob: blob,
-    name: \`(\${data.i} of \${data.n})-\${data.fileHandle.name}\`,
+    blob: await canvas.convertToBlob({type: blob.type}),
+    name,
   };
 }`,
     extensions: [
@@ -74,7 +88,7 @@ saveChangesBtn.onclick = async () => {
   let transformJsFile = await window.dataFolder.getFileHandle('transform.js', { create: true });
   let editorText = editorView.state.doc.toString();
   let writable = await transformJsFile.createWritable();
-  writable.write(editorText);
+  await writable.write(editorText);
   await writable.close();
   thereAreUnsavedChanges = false;
   saveChangesBtn.disabled = true;
