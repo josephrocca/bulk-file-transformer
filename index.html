@@ -27,7 +27,7 @@
   threads: <input type=number id=numThreadsEl value="1" style="width:60px;"> <script>numThreadsEl.value=navigator.hardwareConcurrency</script>
   <button onclick="start()">transform data</button>
   <div style="display: flex;align-items: center;margin-top: 0.5rem;">
-    <input id="firstNFilesOnlyCheckbox" type="checkbox"> first <input type="number" value="50" id="firstNFilesInput" style="width: 50px; text-align: center;"> files only (for testing)
+    <input id="firstNFilesOnlyCheckbox" type="checkbox"> first <input type="number" value="50" id="firstNFilesInput" style="width: 50px; text-align: center; margin: 0 0.25rem;"> files only (for testing)
   </div>
   <hr>
   <progress id="generationProgressEl" style="width:100%;" value="0" max="100"></progress>
