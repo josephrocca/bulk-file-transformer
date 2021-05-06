@@ -17,8 +17,8 @@
 
   <h1>Bulk File Transformer</h1>
   <div style="max-height: 150px; overflow-y: auto;">
-    <p style="margin-top:0;">This is a browser-based tool that allows you to define a custom JavaScript function which is used to bulk-convert a folder of files (using the new File System Access API).</p>
-    <p>Your data folder should contain an '<b>input</b>' folder (filled with files) and an empty '<b>output</b>' folder. Your data folder can <i>optionally</i> contain '<b>transform.js</b>' which defines an async function called 'transform' that takes as input an object like this: <b>{fileHandle, i, n}</b> (the input file handle, index, and total number of files) and returns an object like this: <b>{blob, name}</b> (or an array of these objects, if each input should be converted into multiple output files). If the output name contains forward-slashes, sub-folders are made in the output folder to match the given path. If the data folder doesn't contain transform.js, you can use the code editor below to write the transform function.</p>
+    <p style="margin-top:0;">This is a browser-based tool that allows you to define a custom JavaScript function which is used to bulk-convert a folder of files (using the new <a href="_blank" href="https://web.dev/file-system-access/">File System Access API</a>).</p>
+    <p>Your data folder should contain an '<b>input</b>' folder (filled with files and/or sub-folders) and an empty '<b>output</b>' folder. Your data folder can <i>optionally</i> contain '<b>transform.js</b>' which defines an async function called 'transform' that takes as input an object like this: <b>{fileHandle, path, i, n}</b> (the input file handle, the folder path to that file, the file index, and total number of files) and returns an object like this: <b>{blob, name}</b> (or an array of these objects, if each input should be converted into multiple output files). If the output name contains forward-slashes, sub-folders are made in the output folder to match the given path. If the data folder doesn't contain transform.js, you can use the code editor below to write the transform function.</p>
     <p>The files in the input folder will be copied, transformed, and placed into the output folder with the new filenames as specified by the transform function. Note that your transform function is executed in Web Workers, using as many threads as you like (specified below).</p>
     <p>The code for this web app is at <a href="https://github.com/josephrocca/bulk-file-transformer" target="_blank">@josephrocca/bulk-file-transformer</a> on Github.</p>
   </div>
@@ -33,6 +33,7 @@
   <hr>
   <progress id="generationProgressEl" style="width:100%;" value="0" max="100"></progress>
   <div id="statusEl"></div>
+  <div id="errorLogEl"></div>
 
   <br><br>
   <button id="saveChangesBtn" disabled>save changes to <b>transform.js</b></button>
@@ -60,23 +61,36 @@
       dataFolderChooserBtn.style.fontWeight = "normal";
     }
 
+    async function recursiveFileCounter(directory) {
+      let count = 0;
+      for await (const [name, handle] of directory.entries()) {
+        count += handle.kind==="directory" ? await recursiveFileCounter(handle) : 1;
+      }
+      return count;
+    }
+
     async function start() {
 
       if(!window.dataFolder) return alert("please choose a data folder first");
 
+      errorLogEl.innerHTML = "";
       statusEl.innerHTML = "setting up...";
       generationProgressEl.value = 0;
 
       let inputFilesFolder = await window.dataFolder.getDirectoryHandle("input");
       let outputFilesFolder = await window.dataFolder.getDirectoryHandle("output");
 
-      let maxNumberOfInputFilesToProcess = firstNFilesOnlyCheckbox.checked ? Number(firstNFilesInput.value) : null;
+      let maxNumberOfInputFilesToProcess = firstNFilesOnlyCheckbox.checked ? Number(firstNFilesInput.value) : Infinity;
       
-      let numInputs = 0;
-      for await (let k of inputFilesFolder.keys()) {
-        numInputs++;
-        if(maxNumberOfInputFilesToProcess && numInputs === maxNumberOfInputFilesToProcess) break;
-      }
+      // let numInputs = 0;
+      // for await (let k of inputFilesFolder.keys()) {
+      //   numInputs++;
+      //   if(maxNumberOfInputFilesToProcess && numInputs === maxNumberOfInputFilesToProcess) break;
+      // }
+      
+      let numInputs = await recursiveFileCounter(inputFilesFolder);
+      numInputs = Math.min(numInputs, maxNumberOfInputFilesToProcess);
+
       console.log(`${numInputs} files to process.`);
 
       let editorText = editorView.state.doc.toString();
@@ -110,6 +124,7 @@
               for(let outputDatum of outputData) {
                 let filename = outputDatum.name;
                 let outputFolder = rootFolderHandle;
+                if(filename.startsWith("/") || filename.includes("//")) throw new Error("File name cannot start with a forward-slash or contain more than one consecutive forward-slashes.");
                 let pathArr = filename.split("/");
                 if(pathArr.length > 1) {
                   outputFolder = await __createOrGetFolderPath(rootFolderHandle, pathArr.slice(0, -1));
@@ -160,31 +175,69 @@
         lastCompletedCount = completedCount;
       }, 10*1000);
 
+      // let i = 0;
+      // for await (const fileHandle of inputFilesFolder.values()) {
+      //   updateStatus();
+
+      //   if(i === maxNumberOfInputFilesToProcess) {
+      //     break;
+      //   }
+
+      //   let transformFn;
+      //   while(true) {
+      //     transformFn = getAvailableWorker();
+      //     if(transformFn) break;
+      //     await sleep(1);
+      //   }
+
+      //   // now that we have an available worker, dispatch it (note the lack of `await` here):
+      //   (async function(fileHandle, i){
+      //     let success = await transformFn(outputFilesFolder, {fileHandle, i, n:numInputs});
+      //     if(!success) {
+      //       console.error(`Failed to transform ${fileHandle.name}.`);
+      //     }
+      //     transformFn.isBusy = false;
+      //     completedCount++;
+      //   })(fileHandle, i++);
+      // }
+
       let i = 0;
-      for await (const fileHandle of inputFilesFolder.values()) {
-        updateStatus();
-
-        if(maxNumberOfInputFilesToProcess && i === maxNumberOfInputFilesToProcess) {
-          break;
-        }
-
-        let transformFn;
-        while(true) {
-          transformFn = getAvailableWorker();
-          if(transformFn) break;
-          await sleep(1);
-        }
-
-        // now that we have an available worker, dispatch it (note the lack of `await` here):
-        (async function(fileHandle, i){
-          let success = await transformFn(outputFilesFolder, {fileHandle, i, n:numInputs});
-          if(!success) {
-            console.error(`Failed to transform ${fileHandle.name}.`);
+      async function recursivelyProcessFiles(directory, path) {
+        for await (const [name, handle] of directory.entries()) {
+          
+          if(handle.kind === "directory") {
+            let p = path.slice(0);
+            p.push(name);
+            await recursivelyProcessFiles(handle, p);
+            continue;
           }
-          transformFn.isBusy = false;
-          completedCount++;
-        })(fileHandle, i++);
+
+          updateStatus();
+
+          if(i === maxNumberOfInputFilesToProcess) {
+            break;
+          }
+
+          let transformFn;
+          while(true) {
+            transformFn = getAvailableWorker();
+            if(transformFn) break;
+            await sleep(1);
+          }
+
+          // now that we have an available worker, dispatch it (note the lack of `await` here):
+          (async function(fileHandle, i, path){
+            let success = await transformFn(outputFilesFolder, {fileHandle, i, n:numInputs, path});
+            if(!success) {
+              console.error(`Failed to transform ${fileHandle.name}.`);
+              errorLogEl.innerHTML = "<b style='color:red;'>One or more errors have occurred during processing. Please open the browser console (ctrl+shift+j) to see the error messages.</b>";
+            }
+            transformFn.isBusy = false;
+            completedCount++;
+          })(handle, i++, path.slice(0));
+        }
       }
+      await recursivelyProcessFiles(inputFilesFolder, []);
 
       updateStatus();
 
