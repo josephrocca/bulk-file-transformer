@@ -1,9 +1,14 @@
+// Original file here: https://github.com/developit/greenlet
+
 // I edited this so it allows you to pass a string that defines some global variables
 // within the worker scope, and then the `transform` function is what gets "exported".
+// EDIT: Changed so that __transformWrapper is what gets exported.
 
 // I've also created a global greenletWorkers array and added the created workers to it so
 // I can terminate all workers after I'm done with them.
 window.greenletWorkers = [];
+
+// And I also changed the worker to module worker, which required some changes.
 
 function greenletEdited(asyncFunction) {
 	// A simple counter is used to generate worker-global unique ID's for RPC:
@@ -13,7 +18,7 @@ function greenletEdited(asyncFunction) {
 	const promises = {};
 
 	// Use a data URI for the worker's src. It inlines the target function and an RPC handler:
-	const script = asyncFunction.toString().replace(/(\s)(async function __transformWrapper[ (])/, "$1$$$$=$2")+';onmessage='+(e => {
+	const script = asyncFunction.toString().replace(/(\s)(async function __transformWrapper[ (])/, "$1self.$$$$=$2")+';onmessage='+(e => {
 		/* global $$ */
 
 		// Invoking within then() captures exceptions in the supplied async function as rejections
@@ -33,9 +38,9 @@ function greenletEdited(asyncFunction) {
 			er => { postMessage([e.data[0], 1, '' + er]); }
 		);
 	});
-	const workerURL = URL.createObjectURL(new Blob([script]));
+	const workerURL = URL.createObjectURL(new Blob([script], {type:"text/javascript"}));
 	// Create an "inline" worker (1:1 at definition time)
-	const worker = new Worker(workerURL);
+	const worker = new Worker(workerURL, {type:"module"});
 
 	window.greenletWorkers.push(worker);
 
