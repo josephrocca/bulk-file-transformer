@@ -26,7 +26,7 @@
   let state = EditorState.create({
     doc: `// Here's an example transform function that converts images to grayscale.
 
-let canvas = new OffscreenCanvas(512, 256);
+let canvas = new OffscreenCanvas(256, 256);
 let ctx = canvas.getContext("2d");
 
 async function transform(data) {
