@@ -72,6 +72,13 @@
 
       if(!window.dataFolder) return alert("please choose a data folder first");
 
+      try {
+        eval(`function foobar289d29fk79X85d322asfj20() {${window.editorView.state.doc.toString()}}`);
+      } catch(e) {
+        alert(`There's a syntax error in your transform code: ${e.stack}`);
+        return;
+      }
+
       errorLogEl.innerHTML = "";
       statusEl.innerHTML = "setting up...";
       generationProgressEl.value = 0;
