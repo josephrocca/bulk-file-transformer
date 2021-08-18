@@ -130,7 +130,7 @@
               for(let outputDatum of outputData) {
                 let filename = outputDatum.name;
                 let outputFolder = rootFolderHandle;
-                if(filename.startsWith("/") || filename.includes("//")) throw new Error("File name cannot start with a forward-slash or contain more than one consecutive forward-slashes.");
+                if(filename.startsWith("/") || filename.includes("//")) throw new Error("File name cannot start with a forward-slash or contain more than one consecutive forward-slash.");
                 let pathArr = filename.split("/");
                 if(pathArr.length > 1) {
                   outputFolder = await __createOrGetFolderPath(rootFolderHandle, pathArr.slice(0, -1));
