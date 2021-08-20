@@ -11,14 +11,23 @@ async function transform(data) {
   let outputs = [];
   let nameI = 0;
 
-  let numAugmentationsPerImage = 1000;
+  let numAugmentationsPerImage = 500;
 
   for(let i = 0; i < numAugmentationsPerImage; i++) {
     ctx.restore();
     ctx.save(); // we need to save immediately after restoring because restoring pops the save off the stack, so we need a "save" for the next iteration of the loop: https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/restore
     ctx.clearRect(0, 0, size, size);
 
-    // if(r() < 0.5) randomBackground();
+    // random background:
+    ctx.fillStyle = randomColor();
+    ctx.fillRect(0, 0, size, size);
+    if(r() < 0.5) {
+      let gradient = ctx.createLinearGradient(r(-size, size*2), r(-size, size*2), r(-size, size*2), r(-size, size*2));
+      gradient.addColorStop(0, randomColor());
+      gradient.addColorStop(1, randomColor());
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+    }
 
     let transforms = [rotate, shift, scale, filter];
     shuffleArray(transforms);
@@ -28,24 +37,13 @@ async function transform(data) {
     
     outputs.push({
       blob: await canvas.convertToBlob({type: "image/jpeg"}),
-      name: (name+"-!-"+nameI++)+".jpg",
+      name: `${name.split(".")[0]}/${nameI++}.jpg`,
     });
   }
 
   return outputs;
 }
 
-// function randomBackground() {
-//   ctx.fillStyle = randomColor();
-//   ctx.fillRect(0, 0, size, size);
-//   if(r() < 0.5) {
-//     let gradient = ctx.createLinearGradient(r(-size, size*2), r(-size, size*2), r(-size, size*2), r(-size, size*2));
-//     gradient.addColorStop(0, randomColor());
-//     gradient.addColorStop(1, randomColor());
-//     ctx.fillStyle = gradient;
-//     ctx.fillRect(0, 0, size, size);
-//   }
-// }
 
 function rotate() {
   let maxRotateDeg = 15;
@@ -58,21 +56,33 @@ function rotate() {
 
 
 function shift() {
-  let maxShift = 0.2; // <-- fraction of size
+  let maxShift = 0.4; // <-- fraction of size
   if(r() < 0.5) {
-    ctx.translate(-size*maxShift + r()*size*maxShift*2, -size*maxShift + r()*size*maxShift*2);
+    ctx.translate(r(-size*maxShift, size*maxShift), r(-size*maxShift, size*maxShift));
   }    
 }
 
 
 function scale() {
-  let maxScale = 0.7; // <-- fraction of size
-  ctx.scale(r() < 0.5 ? (1-maxScale)+r()*maxScale*2 : 1, r() < 0.5 ? (1-maxScale)+r()*maxScale*2 : 1);
+  let minScale = 0.2;
+  let maxScale = 1.35;
+  if(r() < 1) {
+    ctx.translate(size/2, size/2);
+    if(r() < 0.2) { // chance of scaling independently, but if so, make the scaling closer to 1
+      // subtract 1 to center around zero, then shrink, then add 1 to center around 1 again:
+      let shrinkFactor = 0.7;
+      ctx.scale((r(minScale, maxScale)-1)*shrinkFactor + 1, (r(minScale, maxScale)-1)*shrinkFactor + 1);
+    } else {
+      let xyScale = r(minScale, maxScale);
+      ctx.scale(xyScale, xyScale);
+    }
+    ctx.translate(-size/2, -size/2);
+  }
 }
 
 
 function filter() {
-  if(r() < 0.7) {
+  if(r() < 0.5) {
     let filterStr = "";
     let filters = [
       () => { if(r() < 0.5) filterStr += ` hue-rotate(${-10+Math.floor(r()*20)}deg)`; },
